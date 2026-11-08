@@ -3,13 +3,6 @@ $currentTimeZone = Get-TimeZone
 
 Write-Host "Current time zone: $($currentTimeZone.Id)"
 
-#显示目标时区
-$targetTimeZoneId = "China Standard Time"
-
-$targetTimeZone = Get-TimeZone -Id $targetTimeZoneId
-
-Write-Host "Target time zone: $($targetTimeZone.Id)"
-
 Add-Type -AssemblyName System.Windows.Forms
 
 $form = New-Object System.Windows.Forms.Form
