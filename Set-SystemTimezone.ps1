@@ -371,13 +371,12 @@ $applyButton.Add_Click({
 
     Set-Date -Date ($utcToApply.ToLocalTime()) -ErrorAction Stop | Out-Null
 
-    Update-Clocks
-        $statusLabel.Text = "$($text.Applied) $(
-            (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-        )"
+        $statusLabel.Tag = Get-Date
+        Update-Clocks
     }
     catch {
         # 时区可能已经成功切换而修改时钟失败，分别说明结果
+        $statusLabel.Tag = $null
         Update-Clocks
 
         if ($zoneChanged) {
@@ -421,6 +420,20 @@ $languageCombo.DropDownStyle = "DropDownList"
 $languageCombo.SelectedIndex = 0
 $form.Controls.Add($languageCombo)
 
+$clockFormatLabel = New-Object System.Windows.Forms.Label
+$clockFormatLabel.Location = New-Object System.Drawing.Point(360, 20)
+$clockFormatLabel.AutoSize = $true
+$form.Controls.Add($clockFormatLabel)
+
+$clockFormatCombo = New-Object System.Windows.Forms.ComboBox
+$clockFormatCombo.Location = New-Object System.Drawing.Point(465, 16)
+$clockFormatCombo.Width = 165
+$clockFormatCombo.DropDownStyle = "DropDownList"
+[void]$clockFormatCombo.Items.Add("24h")
+[void]$clockFormatCombo.Items.Add("12h (AM/PM)")
+$clockFormatCombo.SelectedIndex = 0
+$form.Controls.Add($clockFormatCombo)
+
 $systemClockLabel = New-Object System.Windows.Forms.Label
 $systemClockLabel.Location = New-Object System.Drawing.Point(20, 95)
 $systemClockLabel.AutoSize = $true
@@ -434,6 +447,7 @@ $form.Controls.Add($targetClockLabel)
 $translations = @{
     zh = @{
         Title       = "系统时区与时间"
+        ClockFormat = "时间格式"
         CurrentZone = "当前系统时区"
         SystemTime  = "系统时间"
         TargetZone  = "目标时区"
@@ -452,6 +466,7 @@ $translations = @{
 
     en = @{
         Title       = "System Time and Time Zone"
+        ClockFormat = "Time format"
         CurrentZone = "Current system time zone"
         SystemTime  = "System time"
         TargetZone  = "Target time zone"
@@ -510,15 +525,27 @@ function Get-ZoneName {
     return $Id
 }
 
+function Get-ClockFormat {
+    if ($clockFormatCombo.SelectedIndex -eq 1) {
+        return 'yyyy-MM-dd hh:mm:ss tt'
+    }
+    return 'yyyy-MM-dd HH:mm:ss'
+}
+
 function Update-Clocks {
     $text = Get-UiText
+    $format = Get-ClockFormat
     $utcNow = Get-ReferenceUtc
     $currentZone = Get-TimeZone
 
     $currentLabel.Text = "$($text.CurrentZone): $(Get-ZoneName $currentZone.Id)"
     $systemClockLabel.Text = "$($text.SystemTime): $(
-        (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        (Get-Date).ToString($format)
     )"
+
+    if ($null -ne $statusLabel.Tag) {
+        $statusLabel.Text = "$($text.Applied) $($statusLabel.Tag.ToString($format))"
+    }
 
     if ($null -eq $utcNow) {
         $targetClockLabel.Text = if ($null -ne $referenceClock.Pending) { $text.Fetching } else { $text.Unavailable }
@@ -532,13 +559,14 @@ function Update-Clocks {
         $targetTime = [TimeZoneInfo]::ConvertTimeFromUtc($utcNow, $zone)
 
         $targetClockLabel.Text = "$($text.TargetTime): $(
-            $targetTime.ToString('yyyy-MM-dd HH:mm:ss')
+            $targetTime.ToString($format)
         )"
     }
 }
 
 function Update-ZoneList {
     $selectedIndex = $timeZoneCombo.SelectedIndex
+    $format = Get-ClockFormat
     $utcNow = Get-ReferenceUtc
 
     # 批量修改完成后再绘制
@@ -563,7 +591,7 @@ function Update-ZoneList {
             $sign = if ($offset.Ticks -lt 0) { "-" } else { "+" }
             $offsetText = $sign + $offset.Duration().ToString("hh\:mm")
 
-            $timeText = $localTime.ToString("yyyy-MM-dd HH:mm:ss")
+            $timeText = $localTime.ToString($format)
 
             $item.Text = "$name | UTC$offsetText | $timeText"
             $timeZoneCombo.Items[$i] = $item.Text
@@ -580,6 +608,7 @@ function Update-Language {
     $text = Get-UiText
 
     $form.Text = $text.Title
+    $clockFormatLabel.Text = $text.ClockFormat
     $targetLabel.Text = $text.TargetZone
     $zoneMode.Text = $text.ZoneMode
     $customMode.Text = $text.CustomMode
@@ -591,6 +620,12 @@ function Update-Language {
 
 $languageCombo.Add_SelectedIndexChanged({
     Update-Language
+})
+
+$clockFormatCombo.Add_SelectedIndexChanged({
+    $datePicker.CustomFormat = Get-ClockFormat
+    Update-ZoneList
+    Update-Clocks
 })
 
 $timeZoneCombo.Add_SelectedIndexChanged({
