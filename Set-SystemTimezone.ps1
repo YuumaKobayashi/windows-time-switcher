@@ -28,7 +28,7 @@ $timeZoneCombo.Location = New-Object System.Drawing.Point(20, 90)
 $timeZoneCombo.Size = New-Object System.Drawing.Size(420, 25)
 $timeZoneCombo.DropDownStyle = "DropDownList"
 
-# 从独立时间源获取 UTC，系统时钟修改不会影响它。
+# 从独立时间源获取 UTC，系统时钟修改不会影响它
 function Get-NtpUtc {
     param([string]$Server)
 
@@ -226,7 +226,7 @@ $timeZoneCombo.IntegralHeight = $false
 $timeZoneCombo.DropDownHeight = 320
 
 # 绘制每一项
-$timeZoneCombo.Add_DrawItem({
+$drawZoneItem = {
     param($sender, $e)
 
     if ($e.Index -lt 0) {
@@ -256,7 +256,8 @@ $timeZoneCombo.Add_DrawItem({
     )
 
     $e.DrawFocusRectangle()
-})
+}
+$timeZoneCombo.Add_DrawItem($drawZoneItem)
 
 $form.Controls.Add($timeZoneCombo)
 
@@ -371,12 +372,13 @@ $applyButton.Add_Click({
 
     Set-Date -Date ($utcToApply.ToLocalTime()) -ErrorAction Stop | Out-Null
 
-        $statusLabel.Tag = Get-Date
-        Update-Clocks
+    Update-Clocks
+        $statusLabel.Text = "$($text.Applied) $(
+            (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        )"
     }
     catch {
         # 时区可能已经成功切换而修改时钟失败，分别说明结果
-        $statusLabel.Tag = $null
         Update-Clocks
 
         if ($zoneChanged) {
@@ -420,20 +422,6 @@ $languageCombo.DropDownStyle = "DropDownList"
 $languageCombo.SelectedIndex = 0
 $form.Controls.Add($languageCombo)
 
-$clockFormatLabel = New-Object System.Windows.Forms.Label
-$clockFormatLabel.Location = New-Object System.Drawing.Point(360, 20)
-$clockFormatLabel.AutoSize = $true
-$form.Controls.Add($clockFormatLabel)
-
-$clockFormatCombo = New-Object System.Windows.Forms.ComboBox
-$clockFormatCombo.Location = New-Object System.Drawing.Point(465, 16)
-$clockFormatCombo.Width = 165
-$clockFormatCombo.DropDownStyle = "DropDownList"
-[void]$clockFormatCombo.Items.Add("24h")
-[void]$clockFormatCombo.Items.Add("12h (AM/PM)")
-$clockFormatCombo.SelectedIndex = 0
-$form.Controls.Add($clockFormatCombo)
-
 $systemClockLabel = New-Object System.Windows.Forms.Label
 $systemClockLabel.Location = New-Object System.Drawing.Point(20, 95)
 $systemClockLabel.AutoSize = $true
@@ -447,7 +435,6 @@ $form.Controls.Add($targetClockLabel)
 $translations = @{
     zh = @{
         Title       = "系统时区与时间"
-        ClockFormat = "时间格式"
         CurrentZone = "当前系统时区"
         SystemTime  = "系统时间"
         TargetZone  = "目标时区"
@@ -466,7 +453,6 @@ $translations = @{
 
     en = @{
         Title       = "System Time and Time Zone"
-        ClockFormat = "Time format"
         CurrentZone = "Current system time zone"
         SystemTime  = "System time"
         TargetZone  = "Target time zone"
@@ -525,27 +511,15 @@ function Get-ZoneName {
     return $Id
 }
 
-function Get-ClockFormat {
-    if ($clockFormatCombo.SelectedIndex -eq 1) {
-        return 'yyyy-MM-dd hh:mm:ss tt'
-    }
-    return 'yyyy-MM-dd HH:mm:ss'
-}
-
 function Update-Clocks {
     $text = Get-UiText
-    $format = Get-ClockFormat
     $utcNow = Get-ReferenceUtc
     $currentZone = Get-TimeZone
 
     $currentLabel.Text = "$($text.CurrentZone): $(Get-ZoneName $currentZone.Id)"
     $systemClockLabel.Text = "$($text.SystemTime): $(
-        (Get-Date).ToString($format)
+        (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     )"
-
-    if ($null -ne $statusLabel.Tag) {
-        $statusLabel.Text = "$($text.Applied) $($statusLabel.Tag.ToString($format))"
-    }
 
     if ($null -eq $utcNow) {
         $targetClockLabel.Text = if ($null -ne $referenceClock.Pending) { $text.Fetching } else { $text.Unavailable }
@@ -559,14 +533,13 @@ function Update-Clocks {
         $targetTime = [TimeZoneInfo]::ConvertTimeFromUtc($utcNow, $zone)
 
         $targetClockLabel.Text = "$($text.TargetTime): $(
-            $targetTime.ToString($format)
+            $targetTime.ToString('yyyy-MM-dd HH:mm:ss')
         )"
     }
 }
 
 function Update-ZoneList {
     $selectedIndex = $timeZoneCombo.SelectedIndex
-    $format = Get-ClockFormat
     $utcNow = Get-ReferenceUtc
 
     # 批量修改完成后再绘制
@@ -591,7 +564,7 @@ function Update-ZoneList {
             $sign = if ($offset.Ticks -lt 0) { "-" } else { "+" }
             $offsetText = $sign + $offset.Duration().ToString("hh\:mm")
 
-            $timeText = $localTime.ToString($format)
+            $timeText = $localTime.ToString("yyyy-MM-dd HH:mm:ss")
 
             $item.Text = "$name | UTC$offsetText | $timeText"
             $timeZoneCombo.Items[$i] = $item.Text
@@ -608,7 +581,6 @@ function Update-Language {
     $text = Get-UiText
 
     $form.Text = $text.Title
-    $clockFormatLabel.Text = $text.ClockFormat
     $targetLabel.Text = $text.TargetZone
     $zoneMode.Text = $text.ZoneMode
     $customMode.Text = $text.CustomMode
@@ -622,20 +594,107 @@ $languageCombo.Add_SelectedIndexChanged({
     Update-Language
 })
 
-$clockFormatCombo.Add_SelectedIndexChanged({
-    $datePicker.CustomFormat = Get-ClockFormat
-    Update-ZoneList
-    Update-Clocks
-})
-
 $timeZoneCombo.Add_SelectedIndexChanged({
     Update-Clocks
 })
 
-# 展开列表时更新其中的时间
-$timeZoneCombo.Add_DropDown({
-    Update-ZoneList
+# 搜索框在上，时区结果在下
+$width = $timeZoneCombo.DropDownWidth
+$listHeight = $timeZoneCombo.DropDownHeight
+
+$searchBox = New-Object System.Windows.Forms.TextBox
+$searchBox.SetBounds(4, 4, ($width - 8), 24)
+$searchBox.AccessibleName = '搜索时区名称或 UTC 时差'
+
+$searchResults = New-Object System.Windows.Forms.ListBox
+$searchResults.IntegralHeight = $false
+$searchResults.DrawMode = 'OwnerDrawFixed'
+$searchResults.ItemHeight = $timeZoneCombo.ItemHeight
+$searchResults.Add_DrawItem($drawZoneItem)
+$searchResults.SetBounds(4, ($searchBox.Bottom + 4), ($width - 8), $listHeight)
+
+$searchPanel = New-Object System.Windows.Forms.Panel
+$searchPanel.Font = $timeZoneCombo.Font
+$searchPanel.Size = [System.Drawing.Size]::new($width, ($searchResults.Bottom + 4))
+$searchPanel.Controls.Add($searchBox)
+$searchPanel.Controls.Add($searchResults)
+
+$searchHost = [System.Windows.Forms.ToolStripControlHost]::new($searchPanel)
+$searchHost.AutoSize = $false
+$searchHost.Size = $searchPanel.Size
+$searchHost.Margin = [System.Windows.Forms.Padding]::Empty
+
+$searchPopup = New-Object System.Windows.Forms.ToolStripDropDown
+[void]$searchPopup.Items.Add($searchHost)
+
+# 记录筛选后的每一行在原列表里的位置
+$originalIndexes = [System.Collections.Generic.List[int]]::new()
+
+function Update-ZoneSearchResults {
+    $query = $searchBox.Text.Trim()
+    $offsetMinutes = $null
+
+    if ($query -eq 'UTC') {
+        $offsetMinutes = 0
+    }
+    elseif ($query -match '^(?:UTC\s*)?([+-])(\d{1,2})(?::([0-5]\d))?$') {
+        $offsetMinutes = 60 * [int]$Matches[2] + [int]$Matches[3]
+        if ($Matches[1] -eq '-') { $offsetMinutes = -$offsetMinutes }
+    }
+
+    $utcNow = Get-ReferenceUtc
+    if ($null -eq $utcNow) { $utcNow = [DateTime]::UtcNow }
+
+    $searchResults.Items.Clear()
+    $originalIndexes.Clear()
+
+    for ($i = 0; $i -lt $timeZoneItems.Count; $i++) {
+        $id = $timeZoneItems[$i].Id
+        $zone = $zoneLookup[$id]
+
+        if ($null -ne $offsetMinutes) {
+            if ($zone.GetUtcOffset($utcNow).TotalMinutes -ne $offsetMinutes) { continue }
+        }
+        elseif ($query.Length -gt 0) {
+            $names = "$(Get-ZoneName $id) $id $($zone.StandardName) $($chineseZoneNames[$id])"
+            if ($names.IndexOf($query, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+                continue
+            }
+        }
+
+        [void]$searchResults.Items.Add($timeZoneCombo.Items[$i])
+        $originalIndexes.Add($i)
+    }
+}
+
+$searchBox.Add_TextChanged({ Update-ZoneSearchResults })
+
+$searchResults.Add_MouseClick({
+    param($sender, $e)
+
+    if ($e.Button -ne 'Left') { return }
+    $index = $sender.IndexFromPoint($e.Location)
+    if ($index -lt 0 -or $index -ge $originalIndexes.Count) { return }
+
+    $timeZoneCombo.SelectedIndex = $originalIndexes[$index]
+    $searchPopup.Close()
 })
+
+$timeZoneCombo.Add_DropDown({
+    [void]$timeZoneCombo.BeginInvoke([System.Windows.Forms.MethodInvoker]{
+        $timeZoneCombo.DroppedDown = $false
+        Update-ZoneList
+        Update-ZoneSearchResults
+
+        # 从白色选中行的底边打开弹层
+        $position = [System.Drawing.Point]::new(0, $timeZoneCombo.Height)
+        $searchPopup.Show($timeZoneCombo, $position)
+        [void]$searchBox.Focus()
+        $searchBox.SelectAll()
+    })
+})
+
+$form.Add_FormClosed({ $searchPopup.Dispose() })
 
 # 保存自定义时钟的起点和经过的时长
 $customClock = @{
